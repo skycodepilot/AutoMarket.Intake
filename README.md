@@ -43,6 +43,8 @@ The system implements a "Vertical Slice" architecture designed for scalability a
     * Set `AutoMarket.Intake.AppHost` as the Startup Project.
     * Press **F5**.
     * *Note: This will automatically provision the PostgreSQL and Redis containers and apply Database Migrations.*
+	* **Another Note:** Visual Studio will launch the **Aspire Dashboard** (usually on port 17020-17200).
+        Click the **"Traces"** tab to see real-time visualization of the API latency and Database queries.
 
 3.  **Launch the Frontend**
     * Open a terminal in `AutoMarket.Intake.Frontend`.
