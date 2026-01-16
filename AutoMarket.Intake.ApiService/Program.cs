@@ -2,6 +2,7 @@ using AutoMarket.Intake.ApiService;
 using AutoMarket.Intake.ApiService.Data; // <--- NEW IMPORT
 using AutoMarket.Intake.ApiService.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,12 +36,33 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// --- 6. DATA INITIALIZATION (THE "DEV" SHORTCUT) ---
-// This ensures the DB exists and the Table is created immediately.
+// --- 6. DATA INITIALIZATION (THE "SENIOR" WAY) ---
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<IntakeDbContext>();
-    db.Database.EnsureCreated(); // Auto-creates table if missing
+    var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    var db = services.GetRequiredService<IntakeDbContext>();
+
+    // Retry loop for "Cold Start" databases
+    var retries = 5;
+    while (retries > 0)
+    {
+        try
+        {
+            logger.LogInformation("Attempting to migrate database...");
+            db.Database.Migrate(); // The real command
+            logger.LogInformation("Database migration successful.");
+            break; // Success! Exit the loop.
+        }
+        catch (Npgsql.NpgsqlException ex)
+        {
+            retries--;
+            if (retries == 0) throw; // If we failed 5 times, actually crash.
+
+            logger.LogWarning(ex, "Database not ready yet. Retrying in 2 seconds...");
+            System.Threading.Thread.Sleep(2000); // Wait 2 seconds
+        }
+    }
 }
 
 // --- 7. MIDDLEWARE ---
