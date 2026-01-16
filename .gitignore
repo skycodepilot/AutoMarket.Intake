@@ -1,0 +1,21 @@
+# .NET Build Artifacts
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# React / Node
+node_modules/
+dist/
+.env.local
+
+# Aspire / Docker
+.aspire/
+
+# OS Junk
+.DS_Store
+Thumbs.db
+
+# User Secrets (Security Critical)
+secrets.json
