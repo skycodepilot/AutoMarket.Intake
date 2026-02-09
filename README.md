@@ -84,5 +84,10 @@ Business logic is instrumented with **OpenTelemetry**.
 * `AutoMarket.Intake.Frontend`: The User Interface (React + Vite).
 * `AutoMarket.Intake.ServiceDefaults`: Shared configuration for Resilience & Telemetry.
 
+## 🔮 Roadmap (v2)
+* **Upgrade to .NET 10 (LTS):** Migrate target framework for long-term support.
+* **Integration Testing:** Implement `Aspire.Hosting.Testing` to spin up the full environment for end-to-end automated tests.
+* **Cloud Infrastructure as Code (IaC):** Generate Azure Bicep definitions using `azd infra synth` to verify deployment readiness without incurring cloud costs.
+
 ---
 *Created as a technical demonstration for AutoMarket Enterprise Technology Services.*
