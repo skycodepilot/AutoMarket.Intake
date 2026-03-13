@@ -1,14 +1,18 @@
 using AutoMarket.Intake.ApiService;
-using AutoMarket.Intake.ApiService.Data; // <--- NEW IMPORT
+using AutoMarket.Intake.ApiService.Data;
+using AutoMarket.Intake.ApiService.Errors;
 using AutoMarket.Intake.ApiService.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Trace;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // --- 1. CONFIGURATION ---
 builder.AddServiceDefaults();
+builder.Services.AddProblemDetails(); // Adds the ProblemDetails formatting
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>(); // Registers GlobalExceptionHandler class
 
 // --- 2. DATABASE SETUP (NEW) ---
 // "postgres" matches the name you gave the container in AppHost.cs
@@ -34,7 +38,35 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    // If they hit the limit, return a 429 Too Many Requests
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Create a policy named "fixed"
+    options.AddPolicy("fixed", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            // Partition by IP address (so one bad actor doesn't block everyone else)
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100, // Max 100 requests
+                Window = TimeSpan.FromMinutes(1), // Per 1 minute
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0 // Don't queue excess requests, just reject them immediately
+            }));
+});
+
 var app = builder.Build();
+
+// Set CORS first so every response - even errors - gets the headers
+app.UseCors("AllowFrontend");
+
+// THEN catch exceptions
+app.UseExceptionHandler();
+
+// THEN rate limit
+app.UseRateLimiter();
 
 // --- 6. DATA INITIALIZATION (THE "SENIOR" WAY) ---
 using (var scope = app.Services.CreateScope())
@@ -67,7 +99,6 @@ using (var scope = app.Services.CreateScope())
 
 // --- 7. MIDDLEWARE ---
 app.MapDefaultEndpoints();
-app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 
 // --- 8. ENDPOINTS ---
@@ -77,7 +108,8 @@ app.MapGet("/api/intake", (IntakeDbContext db) =>
 {
     // Return the last 10 scans, newest first
     return db.Scans.OrderByDescending(x => x.ScannedAt).Take(10).ToList();
-});
+})
+.RequireRateLimiting("fixed");
 
 // POST Endpoint: Save the scan
 app.MapPost("/api/intake", async (
@@ -111,6 +143,7 @@ app.MapPost("/api/intake", async (
     await db.SaveChangesAsync(); // <--- The moment of truth
 
     return Results.Ok(result);
-});
+})
+.RequireRateLimiting("fixed");
 
 app.Run();

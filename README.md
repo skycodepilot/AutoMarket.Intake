@@ -84,9 +84,52 @@ Business logic is instrumented with **OpenTelemetry**.
 * `AutoMarket.Intake.Frontend`: The User Interface (React + Vite).
 * `AutoMarket.Intake.ServiceDefaults`: Shared configuration for Resilience & Telemetry.
 
+## 🛡️ Resilience & Load Testing
+
+This repository includes a native PowerShell script (`Test-IntakeResilience.ps1`) that serves as a local, end-to-end functional test for the API's rate-limiting middleware.
+
+### Running the Test
+Ensure the Aspire AppHost is running, then execute the script from the solution root:
+
+```powershell
+.\Test-IntakeResilience.ps1
+```
+
+**Expected Behavior:** The script attempts to flood the GET `/api/intake` endpoint with 105 rapid-fire requests. You should observe exactly 100 `200 OK` responses, abruptly followed by `429 Too Many Requests`. This validates that the FixedWindowLimiter is successfully shedding load to protect the Postgres database.
+
+## ⚠️ Technical Quirks (The "Warm-Up" Hack)
+
+If you read the script, you will notice a "Dummy POST" request immediately preceding the GET loop. This is a deliberate workaround for legacy PowerShell 5.1 constraints, not an API requirement.
+
+**The Cold Start Handshake:** PowerShell 5.1 struggles to concurrently negotiate dozens of simultaneous TLS handshakes against a local Kestrel server using a self-signed dev certificate, resulting in false-positive "Connection Closed" errors.
+
+**The Warm-Up Fix:** Sending a single POST with an intentionally malformed JSON body forces PowerShell to establish a highly stable `Expect: 100-Continue TLS` tunnel. The subsequent GET requests can then reuse this primed connection pool.
+
+**Connection Throttling:** The script artificially raises `[System.Net.ServicePointManager]::DefaultConnectionLimit` to 1000 to prevent PowerShell from bottlenecking its own requests.
+
+*Note:* This script is a lightweight, zero-dependency utility for local tire-kicking. Downrange, this script will **likely** be deprecated in favor of a robust Integration Test suite (e.g., WebApplicationFactory) and dedicated load-testing frameworks (like k6 or NBomber).
+
+## ♨️ Hot Takes: Bad Habits I Avoided
+
+While testing global exception handling, I added a "poison pill" check that allowed for easy manual tests of exceptions [in `Program.cs`], like:
+
+```C#
+// --- POISON PILL FOR TESTING ---
+if (vin == "CRASH")
+{
+    throw new InvalidOperationException("Manual test explosion! The core reactor is melting down.");
+}
+// -------------------------------
+```
+
+**Why did I do this?** It allowed me to handle and obfuscate error details (so big, detailed exception stack traces don't get returned).
+
+**Why didn't I leave this in the code?** Leaving deliberate tests like this in code is an anti-pattern (aka, a no-no). Instead of this, standardized code (e.g. separating exception-handling into "middleware") is a better and more-centralized solution (because the "lava flow" anti-pattern is *also* real, and leaving discrete dev tests like this in code eventually makes them permanent - and cost-prohibitive to refactor - if they stay there long enough).
+
 ## 🔮 Roadmap (v2)
 * **Upgrade to .NET 10 (LTS):** Migrate target framework for long-term support.
-* **Integration Testing:** Implement `Aspire.Hosting.Testing` to spin up the full environment for end-to-end automated tests.
+* **Integration Testing:** Implement `Aspire.Hosting.Testing` to spin up the full environment for end-to-end automated tests. Introduce more tests to check for return codes (e.g. 429 or 500). Perform safer VIN checking or implement standardized (and therefore, easier to maintain and extend) input test practices. TL;DR - **test all the [relevant] things.**
+* **Consider Redis:** Implement earmarked Redis design(s) to aid in caching / performance.
 * **Cloud Infrastructure as Code (IaC):** Generate Azure Bicep definitions using `azd infra synth` to verify deployment readiness without incurring cloud costs.
 
 ---
